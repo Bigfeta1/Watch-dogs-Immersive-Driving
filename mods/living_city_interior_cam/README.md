@@ -217,6 +217,9 @@ History:
 - v0.22: user "98% done": face shows a little in slow turns (~15 mph). Low-speed camera 0.08 -> 0.10 m
   forward: pivot (0, 0.44, 1.025); tuck camera unchanged at (0, 0.48, 0.935).
 - v0.23: v0.22 "much better, still slightly forward": low-speed camera 0.10 -> 0.11 m: pivot (0, 0.45, 1.025); tuck camera unchanged.
+- Near clip: Codex found the active first person camera object's near plane = 0.25 m (runtime memory,
+  Disrupt_b64.dll). Investigation continues in `Watch_Dogs/CAMERA_NEAR_CLIP_HANDOFF_FOR_CLAUDE.md`
+  (research tools in `_dev/nearclip/`, local only).
 - `_dev/fcb.py` fixed: an object back reference (0xFE count) is an index into the objects parsed so
   far, not a byte offset (cameracontext.lib never uses one; cameravehiclepreset.lib does).
 

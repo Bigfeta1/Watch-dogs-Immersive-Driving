@@ -11,5 +11,6 @@ for mod in living_city_interior_cam living_city_speedo_fix; do
     --exclude '__pycache__' --exclude '_dev/nearclip' \
     "$GAME_MODS/$mod/" "$HERE/mods/$mod/"
 done
-cp "$GAME_MODS/../Living_City_MOD_CONFIG.txt" "$HERE/Living_City_MOD_CONFIG.txt"
+# the game's copy is read-only; copy contents only
+install -m 644 "$GAME_MODS/../Living_City_MOD_CONFIG.txt" "$HERE/Living_City_MOD_CONFIG.txt"
 echo "synced from $GAME_MODS"

@@ -1,0 +1,10 @@
+-- Living_City Interior Camera Tweaks - CONFIGURATION FILE
+
+-- Edit the values, save, then restart the game.
+
+-- Switch to 1 to record the camera position/angles relative to the car while driving (default 0 = Disabled)
+-- Written to data_win64/mods/living_city_interior_cam/camera_log.csv (overwritten each game start)
+InteriorCam_Config.Log = 1
+
+-- Switch to 1 to record the rider head position (2 per second, only while on a bike) to head_log.csv (default 0 = Disabled)
+InteriorCam_Config.HeadLog = 0

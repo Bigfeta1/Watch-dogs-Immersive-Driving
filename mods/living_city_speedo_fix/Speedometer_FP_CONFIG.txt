@@ -1,0 +1,35 @@
+-- Living_City Speedometer First Person Fix - CONFIGURATION FILE
+
+-- Edit the values, save, then restart the game.
+-- Offsets are in metres from the camera, relative to the car: X = right (+) / left (-), Y = forward (+), Z = up (+) / down (-).
+
+-- Switch to 0 to disable the first person placement (default 1 = Enabled)
+Globals._SPEEDO_FP.Enabled = 1
+
+-- Camera-to-car distance (metres) below which the camera counts as first person (default 3.0)
+Globals._SPEEDO_FP.Distance = 3.0
+
+-- Position of the speedometer in first person (defaults -0.95 / 1.5 / -0.54 = bottom left of the view)
+Globals._SPEEDO_FP.Offset_X = -0.95
+Globals._SPEEDO_FP.Offset_Y = 1.5
+Globals._SPEEDO_FP.Offset_Z = -0.54
+
+-- Vertical gap between speedometer and fuel gauge in first person (default 0.07)
+Globals._SPEEDO_FP.Gap = 0.07
+
+-- Switch to 0 to keep showing them in first person while the profiler is on (default 1 = hide, avoids the minimap shown by The Fox Mod)
+Globals._SPEEDO_FP.Profiler_Hide = 1
+
+-- Switch to 1 to show camera distance, mode (FP/3P) and placement count next to the speed (default 0 = Disabled)
+Globals._SPEEDO_FP.Debug = 0
+
+-- Bikes: show the speedometer and fuel gauge on the bike dashboard in the rider view (default 1 = Enabled, 0 = bottom left like cars)
+Globals._SPEEDO_FP.Bike_Dash = 0
+
+-- Dashboard position on the bike, metres from the bike centre: X = right (+) / left (-), Y = forward (+), Z = up (+) (defaults 0.0 / 0.57 / 0.90)
+Globals._SPEEDO_FP.Bike_X = 0.0
+Globals._SPEEDO_FP.Bike_Y = 0.57
+Globals._SPEEDO_FP.Bike_Z = 0.90
+
+-- Vertical gap between speedometer and fuel gauge on the dashboard (default 0.03)
+Globals._SPEEDO_FP.Bike_Gap = 0.03

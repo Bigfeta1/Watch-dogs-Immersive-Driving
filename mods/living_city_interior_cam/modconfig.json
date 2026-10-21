@@ -1,0 +1,37 @@
+{
+    "friendlyId": "living_city_interior_cam",
+    "name": "Living_City Interior Camera Tweaks",
+    "author": "local",
+    "description": "Living_City first person in-car camera: look up (15) / down (35) and left/right (60), smooth turning, camera rotates in place, free look while parked.",
+    "version": "0.8",
+    "modProfileUrl": "",
+    "authorProfileUrl": "",
+    "donationUrl": "",
+    "packs": [],
+    "luaAutoStart": [
+        "living_city_interior_cam/camlog.lua",
+        "living_city_interior_cam/bike_fp.lua"
+    ],
+    "dominoAutoStart": [],
+    "dbOverrides": {},
+    "game": "Nexus",
+    "compatibleGameModes": [
+        "campaign",
+        "dlc_solo"
+    ],
+    "requiredMods": [
+        {
+            "friendlyId": "living_city",
+            "name": "Living_City",
+            "url": "https://www.nexusmods.com/watchdogs/mods/81",
+            "version": "2.9.5"
+        }
+    ],
+    "modsRecommendedBelowPriority": [
+        "living_city",
+        "living_city_graphic_tweaks"
+    ],
+    "incompatibleMods": [],
+    "minTntVersion": "1.1.12",
+    "configVersion": 1
+}

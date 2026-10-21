@@ -1,0 +1,33 @@
+{
+    "friendlyId": "living_city_speedo_fix",
+    "name": "Living_City Speedometer First Person Fix",
+    "author": "local",
+    "description": "Moves the Living_City speedometer and fuel gauge in front of the camera when driving in first person.",
+    "version": "1.0",
+    "modProfileUrl": "",
+    "authorProfileUrl": "",
+    "donationUrl": "",
+    "packs": [],
+    "luaAutoStart": [],
+    "dominoAutoStart": [],
+    "dbOverrides": {},
+    "game": "Nexus",
+    "compatibleGameModes": [
+        "campaign",
+        "dlc_solo"
+    ],
+    "requiredMods": [
+        {
+            "friendlyId": "living_city",
+            "name": "Living_City",
+            "url": "https://www.nexusmods.com/watchdogs/mods/81",
+            "version": "2.9.5"
+        }
+    ],
+    "modsRecommendedBelowPriority": [
+        "living_city"
+    ],
+    "incompatibleMods": [],
+    "minTntVersion": "1.1.12",
+    "configVersion": 1
+}

@@ -1,0 +1,5 @@
+bFollowYaw
+bFollowPitch
+fFollowYawDeadAngle
+fFollowMinSpeedAfterInput
+fFollowYawLagRangeAngle

@@ -30,6 +30,12 @@ SPEED_FIELD = 0x8a791d8c  # mode: blend start speed; variant: full blend speed (
 RIDER_CAMERA = 'Vehicles.Driving.Interior.New Interior.bike'
 RIDER_TUCK_CAMERA = 'Vehicles.Driving.Interior.New Interior.bike.42 m/s'
 VEHICULE_INTERIOR = fcb.crc('VehiculeInterior')
+# v0.31: the rider tucks well before 42 m/s; at 55 km/h the camera was only 1/3 of the way to the tuck camera
+# (camlog). Full blend speed of the bike rider speed variant (fContextValue under MixerContexts/Context).
+TUCK_FULL_SPEED = 42.0  # m/s; game 42. v0.31-v0.33 used 15 / 10 for the tuck; v0.40: the tuck is done by
+# NearClipFix.asi, so the speed blend is no longer needed. While it ran, the bike view snapped back to forward
+# when accelerating (cars, whose speed variant is not used, keep the look until the 7.5 m/s follow rule).
+RIDER_BLEND_START = 41.0  # m/s, blend start of the bike rider mode (game 3); as in v0.17
 
 base = open(sys.argv[2], 'rb').read()
 root = fcb.parse(base)['root']
@@ -63,8 +69,14 @@ def write(o, out, ctx):
         new = b
         if ctx == 'vi' and h == CAMERA_FIELD:
             new = rider_key
+        elif ctx == 'vi' and h == SPEED_FIELD:
+            assert struct.unpack('<f', b)[0] == 3.0, b.hex()
+            new = struct.pack('<f', RIDER_BLEND_START)
         elif ctx == 'vi_child' and h == VARIANT_CAMERA_FIELD:
             new = tuck_key
+        elif ctx == 'vi_child' and h == SPEED_FIELD:
+            assert struct.unpack('<f', b)[0] == 42.0, b.hex()
+            new = struct.pack('<f', TUCK_FULL_SPEED) if TUCK_FULL_SPEED != 42.0 else b
         if new != b:
             edits.append((ctx, '%08x' % h, b.hex(), new.hex()))
         out += struct.pack('<I', h) + count(len(new)) + new
@@ -101,7 +113,7 @@ def compare(a, b, path):
 
 
 compare(root, out_root, '')
-assert all(h in ('%08x' % CAMERA_FIELD, '%08x' % VARIANT_CAMERA_FIELD) for _, h, _, _ in changed)
+assert all(h in ('%08x' % CAMERA_FIELD, '%08x' % VARIANT_CAMERA_FIELD, '%08x' % SPEED_FIELD) for _, h, _, _ in changed)
 for path, h, old, new in changed:
     print('%s %s %s -> %s' % (path.split('/')[1] if path else '', h, old, new))
 print('bike presets:', len(presets_bike), 'values changed:', len(changed), 'objects:', n_obj, 'size:', len(data))

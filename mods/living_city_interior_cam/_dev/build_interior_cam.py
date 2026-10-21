@@ -19,6 +19,10 @@ PITCH_MIN = -35.0
 # paused where the cut starts): Agile_04 19.75 and 16.0 deg up; Offroad_04 pickup fine at 35.
 # Assumes fRotationPitchMax is the up side (as fRotationYawMax is left); check with the log.
 PITCH_MAX = 15.0
+# v0.24: Ideal 'Right' offsets apply when looking LEFT (+yaw) and 'Left' when looking right (camlog, Left
+# x -0.30 probe: moved the camera only on -yaw). The offset is in the camera's rotating frame (x right,
+# y forward, z up) and scales ~yaw/90 (0.43 at 36.5 deg, ~0.67 at the 60 deg limit).
+LOOK_LEFT_OFFSET = (0.0, 0.10, 0.0)  # forward along the view when looking left (face clip); user: "significantly better"
 YAW_LIMIT = 60.0  # symmetric left/right limit (was -110 / 60, right side over-extended)
 # mouse input: Living_City's in-car cameras cap turning at 2 x (YawSpeed + YawExtraSpeed) = 140 deg/s
 # (measured 3.11 deg/tick at 45 fps; on foot 120 + 120 -> 480 deg/s measured). Values from the
@@ -154,6 +158,10 @@ for n in interior:
     set_vec(cam, pivot, tuple(pv[i] + ideal[i] + front[i] + drop[i] for i in range(3)))
     for b_off in ideals + offsets:
         set_vec(cam, b_off, (0.0, 0.0, 0.0))
+    # 7. v0.24: with NearClipFix.asi (near 0.15 m) the driver's face shows when looking left; move the
+    #    camera only when looking left (straight ahead stays at the pivot).
+    for a in ('Min', 'Mid', 'Max'):
+        set_vec(cam, field(block(cam, 'Ideal'), 'vectorOffset' + a + 'Right'), LOOK_LEFT_OFFSET)
 
 # v0.11 test: on bikes the rider isn't drawn in this view (screenshot: camera behind the bike, no
 # rider). fCollisionVisibleRadius: car interior -1 (body visible), bike 3rd person 0.1 (visible),
@@ -185,17 +193,47 @@ for n in ('Vehicles.Driving.Interior.New Interior.bike', 'Vehicles.Driving.Inter
 # (35.6 m/s, the logged top speed) is 84% of the blend. Estimate, to tune from the user's look.
 # v0.21: v0.20 tested "much better", but at 80 mph the cap brim sits right above the camera and gets cut
 # by the near clip (not settable). Lower the tuck camera to move away from the brim.
-BIKE_TUCK_SHIFT = (0.0, 0.03, -0.09)  # extra, at full blend (42 m/s); keeps the tuck spot fixed
+BIKE_TUCK_SHIFT = (0.0, 0.0, 0.0)  # extra, at full blend. v0.30-v0.33 moved it (0.03..0.13 fwd, -0.09); v0.34: 0, the tuck is done by NearClipFix.asi [RiderTuck] (holds until stopped)
 n = 'Vehicles.Driving.Interior.New Interior.bike.42 m/s'
 b, off = field(block(cams[n], 'Pivot'), 'vectorPivotOffset')
 cur = struct.unpack_from('<3f', data, off)
 set_vec(cams[n], (b, off), tuple(cur[i] + BIKE_TUCK_SHIFT[i] for i in range(3)))
+
+# v0.25: bike rider view: down limited to the user's chosen angle (camlog, Bike_03 parked: -12.2 deg
+# relative to the bike), up opened to 80 (user asked 80-90; near clip now 0.13 m via NearClipFix.asi).
+BIKE_PITCH_MIN = -12.2
+BIKE_PITCH_MAX = 70.0  # v0.29: user 80 -> 70
+BIKE_YAW_LEFT = 51.2  # v0.27: user's chosen left limit (camlog, Bike_03 parked)
+BIKE_FOLLOW_DELAY = 2.0  # s before the view starts returning to forward after input (game 0)
+BIKE_FOLLOW_LAG = 0.3  # s smoothing of that return (game 0, on foot 0.15)
+BIKE_YAW_RIGHT = -38.7  # v0.28: user's chosen right limit (camlog, Bike_03 parked)
+# v0.26: looking up, the camera sits inside the rider's cap. NearClipFix.asi lifts the camera with pitch
+# but only for the rider view, which it recognises by this FOV (vectorFov, hash 2216c319; 132 cameras incl.
+# on foot use 75, none 75.5). Must match [RiderLift] MarkerFov in bin/NearClipFix.ini.
+BIKE_MARKER_FOV = 75.5
+for n in ('Vehicles.Driving.Interior.New Interior.bike', 'Vehicles.Driving.Interior.New Interior.bike.42 m/s'):
+    set_f(cams[n], 'Rotation', 'fRotationPitchMin', BIKE_PITCH_MIN)
+    set_f(cams[n], 'Rotation', 'fRotationPitchMax', BIKE_PITCH_MAX)
+    set_f(cams[n], 'Rotation', 'fRotationYawMax', BIKE_YAW_LEFT)
+    set_f(cams[n], 'Rotation', 'fRotationYawMin', BIKE_YAW_RIGHT)
+    # v0.43: the look snapped back to forward ~0.15 s after input while riding. Follow field names found in the
+    # engine's property registration (Follow block): fFollowDelayPY and fFollowPYLag are 0 on the interior
+    # cameras (no delay, instant return); on foot 1.0 / 0.15. User rule: while moving, a look returns after 2 s.
+    set_f(cams[n], 'Follow', 'fFollowDelayPY', BIKE_FOLLOW_DELAY)
+    set_f(cams[n], 'Follow', 'fFollowPYLag', BIKE_FOLLOW_LAG)
+    # v0.32 tried fVelocityLag 2 (was 0) to delay the tuck blend's return after stopping: camlog showed the
+    # same y-vs-speed curve braking as accelerating, so it does not affect the speed blend. Removed.
+    b, off = field(block(cams[n], 'FOV'), 'vectorFov')
+    assert len(b) == 12 and users[off] == 1, n
+    set_vec(cams[n], (b, off), (BIKE_MARKER_FOV,) * 3)
 
 # v0.12-v0.16 (bike rider camera: Pivot 845e26fa flag, pivot type 5, Follow/Alignment/FOV/root/Pivot
 # copied from Bumper.Bike) did not change the drift and were removed. The drift was the bike
 # VehiculeInterior mode blending to its 42 m/s variant, a 3rd person camera: fixed in
 # build_vehicle_preset.py. See README history.
 
+# v0.41 set Pivot/bSecureFollowReference (845e26fa) 1 on the bike cameras (the only bike/car difference): did
+# not stop the snap-back and the game felt laggy. Removed in v0.42.
 open(sys.argv[3], 'wb').write(data)
 for e in edits:
     print('%-58s %-18s %s -> %s' % e)

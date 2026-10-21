@@ -222,6 +222,88 @@ History:
   (research tools in `_dev/nearclip/`, local only).
 - `_dev/fcb.py` fixed: an object back reference (0xFE count) is an index into the objects parsed so
   far, not a byte offset (cameracontext.lib never uses one; cameravehiclepreset.lib does).
+- Near clip root cause (2026-10-20/21): the rendering camera (CCameraGameRenderingComponent, vtable RVA
+  0x30D0CA0) has near = 0.25 m at +0x70, copied to the render view at Disrupt_b64.dll RVA 0x2A1202.
+  Proven by runtime writes: 2.0 m hid the bike/rider/road, 0.05 m removed the car roof cut (no distant
+  flicker). Fix: `bin/NearClipFix.asi` (see "Near clip fix" below). Roof (Agile_04, 35 deg up) stays clean
+  up to near 0.16 m; 0.17 cuts it. Lower near shows the driver's own face when looking left.
+- v0.24: look-left camera shift. Ideal direction offsets: `vectorOffset*Right` applies when looking LEFT
+  (+yaw) and `*Left` when looking right (camlog probe with Left x -0.30 moved the camera only on -yaw). The
+  offset is in the camera's rotating frame (x right, y forward, z up) and scales ~yaw/90 (0.43 at 36.5 deg).
+  Right offsets (0, 0.10, 0): at 56 deg left the camera moves 6.2 cm left + 4.7 cm forward; straight ahead
+  and right unchanged (measured). User: "significantly better". Near tuned live to 0.13 m.
+- v0.25: bike rider cameras (`.bike`, `.bike.42 m/s`) pitch -12.2 / 80 (user: down limited to their parked
+  view angle, logged -12.2 deg relative to Bike_03; up 80). Cars stay -35 / 15. Backup `_dev/cameracontext_v0.24.lib`.
+- v0.26: looking up on the bike the camera sat inside the cap. Ideal Min/Mid/Max offsets follow speed, not
+  pitch (v0.2 arm fit), so no file setting moves the camera with pitch. NearClipFix.asi lifts it instead
+  ([RiderLift] in bin/NearClipFix.ini: 0 below Start 10 deg, Shift at Full 80 deg; user raised Shift to
+  0.35 m). It recognises the rider view by FOV: bike interior cameras `vectorFov` (hash 2216c319, name
+  confirmed by CRC) set to 75.5; no other camera uses 75.5 (132 incl. on foot use 75).
+- v0.27: bike left limit `fRotationYawMax` 51.2 (user's chosen angle, camlog). Logged pitch at the down limit
+  -12.198 confirms the pitch limits are relative to the bike. Backups `_dev/cameracontext_v0.25.lib`, `_v0.26.lib`.
+- v0.28: bike right limit `fRotationYawMin` -38.7 (user's chosen angle, camlog). Backup `_dev/cameracontext_v0.27.lib`.
+- v0.29: bike up limit 80 -> 70 (user). Backup `_dev/cameracontext_v0.28.lib`.
+- v0.30: bike tuck camera (`.bike.42 m/s`, full speed blend) 5 cm further forward: pivot (0, 0.53, 0.935)
+  (BIKE_TUCK_SHIFT y 0.03 -> 0.08); user saw the head move forward when accelerating. Backup `_dev/cameracontext_v0.29.lib`.
+  Note: the FOV marker (v0.26) replaced that camera's original vectorFov (80, 80, 80) with 75.5.
+- v0.31: still "not moving forward": camlog showed it was, but slowly (y 0.110 at 5 km/h, 0.158 at 55 km/h)
+  because the speed blend ran to 42 m/s. Tuck camera 13 cm ahead (BIKE_TUCK_SHIFT y 0.13, pivot (0, 0.58, 0.935))
+  and the bike rider blend now completes at 15 m/s (build_vehicle_preset.py TUCK_FULL_SPEED; fContextValue
+  under MixerContexts/Context, 5 bike presets). No "hold N s after stopping" exists in either file (speed blend
+  follows speed; fBlendTime is for mode switches); fVelocityLag (0 on bike cams) untested.
+- v0.32 (test): bike cameras `fVelocityLag` 0 -> 2. camlog: identical y-vs-speed curve braking and
+  accelerating, so it does not affect the speed blend; removed in v0.33. The blend follows speed only.
+- v0.33: user "moved too much" and "retracted too early" when stopping: tuck 9 cm ahead (pivot (0, 0.54,
+  0.935)), blend full at 10 m/s (36 km/h). Backups `_dev/cameracontext_v0.32.lib`, `_dev/cameravehiclepreset_v0.31.lib`.
+- v0.34: user wants the camera to stay forward until stopped, then wait 2 s before going back. Not possible in
+  the files (speed blend only). Moved to NearClipFix.asi [RiderTuck]: the rider cave now calls a C function
+  (riderAdjust) that measures speed from the camera's world x/y per update, moves the view copy Forward along
+  the direction of travel and Down, growing from StartSpeed to FullSpeed, holding while slowing, easing back
+  Return s after Hold s standing still. The look-up lift moved into the same function. Tuck camera in the file
+  reset to the parked position (BIKE_TUCK_SHIFT 0). Offline test `cave_test.cpp` executes the cave through a
+  register-setting thunk and simulates a ride (held to the stop, back ~2.6 s after stopping).
+- v0.35: rider near blended with the tuck ([RiderTuck] Near 0.25 while moving, held/released like the tuck).
+  BUG in the first build: the near cave code grew to +0x48 and overlapped its data at +0x40, so the game read
+  code bytes as the near plane (-1.27e25: only the sky rendered). Fixed: near data moved to +0x80, buildCaves
+  refuses to patch if the code reaches its data, the test harness prints every data slot.
+- v0.36: tuck stutter at speed. Debug trace (`[RiderTuck] Debug=1` -> bin/NearClipFix_debug.csv): the camera
+  update runs ~4x per frame but the position changes once per frame, so per-call speed swung 0..79 m/s at
+  30 m/s and the 80 m/s teleport guard reset the tuck 14 times. Now: speed = distance / time since the position
+  last changed, stopped = no change for 0.1 s, teleport = jump > 5 m. Harness reproduces the 4-calls-per-frame
+  pattern up to 40 m/s: 0 resets, tuck constant.
+- v0.37: stutter while easing back after a stop. Trace: idle jitter (<1 mm) counted as movement and restarted
+  the 0.1 s still timer, and the hold/return only advanced on speed samples, so the return stalled and jumped.
+  Now the hold/return advances on every update by elapsed time. Harness (with idle jitter): largest step 5.4 mm.
+- v0.38: [RiderTuck] HideWhenTucked=1 (first build used HideNear 1 m: also hid the bike, which is in view when
+  looking ahead; v0.39 uses its own TuckHideNear 0.35). While fully tucked (incl. the hold after stopping) the rider near is
+  HideNear (1 m), so the body is not drawn; it returns when the camera starts easing back. Forward now 0.15 m.
+- v0.40: on the bike the view snapped back to forward when accelerating, while cars keep the look until the
+  7.5 m/s follow rule (Follow fields are identical on bike and car cameras). Difference: the bike rider mode's
+  speed blend (3 -> 10 m/s, to the tuck camera) runs, the cars' is not used. With the tuck in NearClipFix.asi the
+  blend is pointless, so it is pushed out of range again (start 41, full 42 m/s, as v0.17). Backup
+  `_dev/cameravehiclepreset_v0.33.lib`. Fix unconfirmed in game when written. Also v0.39 TuckHideNear clip hide
+  reverted (HideWhenTucked=0: any near cut also clips the bike).
+- v0.41: v0.40 did not help (camlog: bike look returns from -38.7 to 0 in ~0.15 s at 70-100 km/h; cars wait
+  1-2 s). Full diff: bike and car interior cameras and VehiculeInterior presets are identical except our limits,
+  the FOV marker and Pivot/bSecureFollowReference (= 845e26fa, name confirmed by CRC): car 1, bike empty.
+  Set to 1 on both bike cameras (file 512029 bytes; only those 2 fields differ from v0.34). Unconfirmed.
+- v0.42: v0.41 did not stop the snap-back and the user reported lag: flag removed (camera file = v0.34 again),
+  plugin Debug trace turned off. Bike snap-back while riding is not caused by any camera/preset data difference.
+- v0.43: Follow field names from the engine's property registration (offset in the settings struct):
+  fFollowPYEnterTime 0x118, bFollowPitch 0x11c, bFollowYaw 0x11d, fFollowPYLag 0x12c, fFollowYawDeadAngle 0x130,
+  fFollowYawCushion 0x134, fFollowPYSpeedThreshold 0x138, fFollowPYSpeedMaximum 0x13c, fFollowMinSpeedAfterInput
+  0x140, bAlignYawOnMovingObject 0x144, fFollowDelayPY 0x184, fFollowDelayR 0x188 (rotation 0xd0..0x100, input
+  0xb4..0xc8, fCollisionVisibleRadius 0x208). Interior cameras: fFollowDelayPY 0 and fFollowPYLag 0 (instant
+  return); on foot 1.0 / 0.15. Bike cameras now fFollowDelayPY 2.0, fFollowPYLag 0.3 (user rule: while moving a
+  look returns after 2 s). 10 bytes differ from v0.34.
+- Rider body hide (plugin, 2026-10-21): lift alone still passed through the head mid-way. Instead, on the
+  rider view (FOV marker) from `HideAbove` 13.5 deg up (camera world pitch +0x60) the near plane switches to
+  `HideNear` 1.0 m, so the rider's own head/body are not drawn; below it the normal near applies. Lift turned
+  off (`Shift=0`). User: works ("what a nice little hack").
+- Tried and dropped: up limit shrinking with left yaw. No yaw-dependent limit exists in the file. The live
+  PitchMax is a runtime copy of the Rotation block (floats -60 60 -180 180 -35 0 35, PitchMax at +0x18) and
+  writing it changes the limit at once, but locating the car-relative yaw in memory needed more test
+  passes; user chose to keep pitch -35 / 15 instead.
 
 ## Files
 
@@ -237,6 +319,17 @@ History:
 | `_dev/fcb.py` | Minimal reader for the `nbCF` binary format. |
 | `_dev/names_confirmed.txt`, `names_unconfirmed.txt` | Field names found so far (CRC32 of the name = field hash). |
 | `_dev/brute.c`, `brute4.c` | CRC32 name search used to find field names. |
+| `_dev/near_clip_fix/` | Source, build and default ini of `NearClipFix.asi` (copy installed in `bin`). |
+
+## Near clip fix (`bin/NearClipFix.asi`)
+
+Install: copy `_dev/near_clip_fix/NearClipFix.asi` and `NearClipFix.ini` to `Watch_Dogs/bin` (the
+`dinput8.dll` ASI loader there loads it). Remove: delete `bin/NearClipFix.asi`.
+It patches the 12-byte near/far copy at Disrupt_b64.dll RVA 0x2A1202 (Steam build 238247912) with a jump
+to a cave that first writes the ini near value into the camera (+0x70). It patches nothing unless the build
+marker and the original bytes match, and logs to `bin/NearClipFix.log`. `Near=` (0.01-0.25, game 0.25) is
+re-read every 0.5 s, so it can be tuned while playing. Applies to every camera (on foot too).
+Build: `x86_64-w64-mingw32-g++ -O2 -Wall -shared -static -o NearClipFix.asi NearClipFix.cpp`.
 
 ## How the field names were found
 
@@ -266,4 +359,4 @@ The merged result the game uses is `%APPDATA%\Troplo\Nexus\databases\CameraConte
 
 ## Undo
 
-Disable the mod in Nexus Tools, or delete this folder.
+Disable the mod in Nexus Tools, or delete this folder. Delete `bin/NearClipFix.asi` for the near clip fix.

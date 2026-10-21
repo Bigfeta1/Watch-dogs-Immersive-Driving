@@ -23,10 +23,12 @@ int main() {
       std::printf("near data: near %.4f hideNear %.4f hideAbove %.5f mark %.6f riderNear %.4f\n", f[0], f[1], f[2], f[3], f[4]); }
     FILE* o = std::fopen("cave_test.bin", "wb"); std::fwrite(cave, 1, 4096, o); std::fclose(o);
     std::printf("cave=%llx base=%llx\n", (unsigned long long)cave, (unsigned long long)base);
-    // thunk: sub rsp,8; mov rax,rdx; movaps xmm1,xmm3; call cave+0x100; add rsp,8; ret
+    // thunk like the game: rsp 16-aligned at the cave, xmm6 saved (the game saves it at 2A117A):
+    // sub rsp,20h; movdqu [rsp],xmm6; mov rax,rdx; movaps xmm1,xmm3; call cave+0x100; movdqu xmm6,[rsp]; add rsp,20h; ret
     unsigned char* th = cave + 0x800;
-    unsigned char code[] = {0x48,0x83,0xEC,0x08, 0x48,0x89,0xD0, 0x0F,0x28,0xCB, 0xE8,0,0,0,0, 0x48,0x83,0xC4,0x08, 0xC3};
-    int32_t r = (int32_t)((cave + 0x100) - (th + 15)); std::memcpy(code + 11, &r, 4);
+    unsigned char code[] = {0x48,0x83,0xEC,0x20, 0xF3,0x0F,0x7F,0x34,0x24, 0x48,0x89,0xD0, 0x0F,0x28,0xCB, 0xE8,0,0,0,0,
+                            0xF3,0x0F,0x6F,0x34,0x24, 0x48,0x83,0xC4,0x20, 0xC3};
+    int32_t r = (int32_t)((cave + 0x100) - (th + 20)); std::memcpy(code + 16, &r, 4);
     std::memcpy(th, code, sizeof(code));
     unsigned char cam[0x80] = {}, frame[0x100] = {};
     float fov = 75.5f * 0.017453292f; std::memcpy(cam + 0x6C, &fov, 4);

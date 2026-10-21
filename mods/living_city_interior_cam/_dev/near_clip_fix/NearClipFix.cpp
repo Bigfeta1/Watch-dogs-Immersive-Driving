@@ -47,7 +47,7 @@ enum : size_t { kNearSlot = 0x80, kHideNear = 0x84, kHideAbove = 0x88, kMarkBits
 
 struct Config {
     float nearPlane, fovMark, startDeg, fullDeg, shift, hideAbove, hideNear;
-    float tuckForward, tuckDown, tuckStart, tuckFull, tuckHold, tuckReturn, tuckNear, tuckHide, tuckHideNear, debug;
+    float tuckForward, tuckDown, tuckStart, tuckFull, tuckHold, tuckReturn, tuckNear, tuckHide, tuckHideNear, debug, camKey;
 };
 
 static wchar_t g_dir[MAX_PATH];
@@ -130,6 +130,7 @@ static Config readConfig() {
     c.debug = iniFloat(ini, L"RiderTuck", L"Debug", L"0", 0.0f, 1.0f, 0.0f);
     c.tuckHide = iniFloat(ini, L"RiderTuck", L"HideWhenTucked", L"0", 0.0f, 1.0f, 0.0f);
     c.tuckHideNear = iniFloat(ini, L"RiderTuck", L"TuckHideNear", L"0.35", 0.01f, 2.0f, 0.35f);
+    c.camKey = iniFloat(ini, L"CameraKey", L"VirtualKey", L"67", 0.0f, 255.0f, 67.0f);   // 67 = 'C'; 0 = off
     return c;
 }
 
@@ -183,7 +184,7 @@ static void riderStep(const unsigned char* cam, float* view, double now) {
         trace(now, 0, 0, s, pos[0], pos[1], 3);
     } else {
         const float mx = pos[0] - s.px, my = pos[1] - s.py, dist = std::sqrt(mx * mx + my * my);
-        if (dist > 5.0f) {   // teleport / respawn
+        if (dist > 5.0f && dist / static_cast<float>(now - s.tMove) > 100.0f) {   // teleport / respawn (a hitch at speed is not one)
             s.speed = 0.0f; s.f = 0.0f; s.still = 0.0f; s.haveDir = false; ++s.teleports;
             s.px = pos[0]; s.py = pos[1]; s.t = s.tMove = now;
             trace(now, 0, dist, s, pos[0], pos[1], 2);
@@ -235,10 +236,55 @@ static void riderStep(const unsigned char* cam, float* view, double now) {
     }
 }
 
+// --- bike-mounted -> rider switch without the game's 3rd person frame (v0.48) ---
+// bike_fp.lua writes the current bike view to bin/NearClipFix_view.txt ("mounted" / "other"); the worker reads
+// it into g_mountedView. While the bike-mounted view shows, every frame is remembered; a camera key press in
+// that view (read here, in the camera update) holds that frame until the rider view is active (rider FOV
+// marker) or 0.5 s pass, so the game's switch to 3rd person and back is never drawn.
+static volatile bool g_mountedView;
+struct Freeze { bool have, active, keyDown; double start; float pos[3], rot[3], fov; };
+static Freeze g_freeze;
+
+// Returns true while the view is held (the caller must not apply its own changes).
+static bool freezeStep(unsigned char* cam, float* view, double now) {
+    Freeze& z = g_freeze;
+    const Config c = g_cfg;
+    bool down = false;
+#ifdef NEARCLIP_TEST
+    extern volatile bool g_testKeyDown;
+    down = g_testKeyDown;
+    if (false) {
+#else
+    if (c.camKey > 0.0f) {
+#endif
+        DWORD fgPid = 0;
+        GetWindowThreadProcessId(GetForegroundWindow(), &fgPid);
+        down = fgPid == GetCurrentProcessId() && (GetAsyncKeyState(static_cast<int>(c.camKey)) & 0x8000);
+    }
+    const bool pressed = down && !z.keyDown;
+    z.keyDown = down;
+    float fov; std::memcpy(&fov, cam + 0x6C, 4);
+    const bool riderView = std::fabs(fov - c.fovMark * kDegToRad) <= 0.0005f;
+    if (z.active) {
+        if (riderView || now - z.start > 0.5) { z.active = false; z.have = false; }
+    } else if (g_mountedView && !riderView) {
+        if (pressed && z.have) { z.active = true; z.start = now; }   // hold the previous (fully mounted) frame
+        else { std::memcpy(z.pos, view, 12); std::memcpy(z.rot, cam + 0x60, 12); z.fov = fov; z.have = true; }
+    } else z.have = false;
+    if (!z.active) return false;
+    std::memcpy(view, z.pos, 12);       // position: the view copy
+    std::memcpy(cam + 0x60, z.rot, 12); // rotation and FOV: read by the game after the cave (FOV reloaded into xmm6)
+    std::memcpy(cam + 0x6C, &z.fov, 4);
+    return true;
+}
+
 static double g_qpcScale;
-extern "C" void riderAdjust(const unsigned char* cam, unsigned char* frame) {
+extern "C" void riderAdjust(unsigned char* cam, unsigned char* frame) {
     LARGE_INTEGER q; QueryPerformanceCounter(&q);
-    riderStep(cam, reinterpret_cast<float*>(frame - 0x38), static_cast<double>(q.QuadPart) * g_qpcScale);
+    const double now = static_cast<double>(q.QuadPart) * g_qpcScale;
+    float* view = reinterpret_cast<float*>(frame - 0x38);
+    if (freezeStep(cam, view, now)) return;
+    riderStep(cam, view, now);
 }
 
 static bool patch(uintptr_t site, const unsigned char* bytes, size_t n) {
@@ -293,7 +339,8 @@ static bool buildCaves(unsigned char* cave, uintptr_t base, const Config& cfg) {
 
     // --- rider cave (0x100). rsp is 16-aligned here (the function calls 0xA6E3C0 with the same rsp), so
     //     3 pushes + 0x28 keep the call aligned with shadow space. Live afterwards: rax, rcx, rdx, z (xmm0,
-    //     reloaded from the stack copy); y is stored first and xmm1 is reloaded by the game at 2A1196.
+    //     reloaded from the stack copy); y is stored first and xmm1 is reloaded by the game at 2A1196. xmm6
+    //     (FOV, loaded at 2A1182, callee-saved by the game) is reloaded from the camera for the frame hold.
     const uintptr_t riderSite = base + kLiftRva, riderBack = riderSite + sizeof(kLiftOriginal);
     c = cave + kRiderCode;
     std::memcpy(c, kLiftOriginal, sizeof(kLiftOriginal)); c += sizeof(kLiftOriginal);   // z -> xmm0; store y
@@ -307,7 +354,8 @@ static bool buildCaves(unsigned char* cave, uintptr_t base, const Config& cfg) {
     const unsigned char post[] = {0xFF,0xD0,                                   // call rax
                                   0x48,0x83,0xC4,0x28,                          // add rsp,28h
                                   0x5A, 0x59, 0x58,                             // pop rdx, rcx, rax
-                                  0xF3,0x0F,0x10,0x40,0xD0};                    // movss xmm0,[rax-30h]
+                                  0xF3,0x0F,0x10,0x40,0xD0,                     // movss xmm0,[rax-30h]
+                                  0xF3,0x0F,0x10,0x71,0x6C};                    // movss xmm6,[rcx+6Ch] (FOV, loaded at 2A1182)
     std::memcpy(c, post, sizeof(post)); c += sizeof(post);
     *c++ = 0xE9; r = rel32(reinterpret_cast<uintptr_t>(c) + 4, riderBack); std::memcpy(c, &r, 4); c += 4;
     if (c > cave + 4096) { logf("rider cave too long; NOT patched"); return false; }
@@ -316,6 +364,8 @@ static bool buildCaves(unsigned char* cave, uintptr_t base, const Config& cfg) {
 }
 
 #ifdef NEARCLIP_TEST
+volatile bool g_testKeyDown;
+extern "C" __declspec(dllexport) void TestSetInput(int keyDown, int mounted) { g_testKeyDown = keyDown != 0; g_mountedView = mounted != 0; }
 extern "C" __declspec(dllexport) int TestBuildCaves(unsigned char* cave, uintptr_t base) { g_cfg = readConfig(); return buildCaves(cave, base, g_cfg); }
 extern "C" __declspec(dllexport) void TestRiderStep(const unsigned char* cam, float* view, double now) { riderStep(cam, view, now); }
 extern "C" __declspec(dllexport) void* TestRiderAdjust() { return reinterpret_cast<void*>(&riderAdjust); }
@@ -370,11 +420,38 @@ static DWORD WINAPI worker(void*) {
     else logf("Patched Disrupt_b64.dll+0x%llx -> cave 0x%llx (rider view)", (unsigned long long)kLiftRva,
               (unsigned long long)(uintptr_t)(cave + kRiderCode));
 
-    // Live tuning: apply edits to NearClipFix.ini within half a second.
+    // Live tuning: apply edits to NearClipFix.ini within half a second. The camera key is polled every 20 ms:
+    // presses while the game has focus are counted into NearClipFix_camkey.txt, which bike_fp.lua reads to
+    // toggle the bike between the rider view and 3rd person (the game's own bike cycle never returns to it).
     LONG traced = 0;
     FILE* dbg = nullptr;
+    wchar_t keyPath[MAX_PATH];
+    std::swprintf(keyPath, MAX_PATH, L"%lsNearClipFix_camkey.txt", g_dir);
+    unsigned keyCount = 0;
+    bool keyWasDown = false;
+    if (FILE* k = _wfopen(keyPath, L"w")) { std::fputs("0\n", k); std::fclose(k); }
+    wchar_t viewPath[MAX_PATH];
+    std::swprintf(viewPath, MAX_PATH, L"%lsNearClipFix_view.txt", g_dir);
+    if (FILE* v = _wfopen(viewPath, L"w")) { std::fputs("other\n", v); std::fclose(v); }
     for (;;) {
-        Sleep(500);
+        for (int i = 0; i < 25; ++i) {
+            Sleep(20);
+            if (i % 5 == 0) {
+                char buf[16] = {};
+                if (FILE* v = _wfopen(viewPath, L"r")) { std::fgets(buf, sizeof(buf), v); std::fclose(v); }
+                g_mountedView = std::strncmp(buf, "mounted", 7) == 0;
+            }
+            const int vk = static_cast<int>(g_cfg.camKey);
+            if (vk <= 0) { keyWasDown = false; continue; }
+            DWORD fgPid = 0;
+            GetWindowThreadProcessId(GetForegroundWindow(), &fgPid);
+            const bool down = fgPid == GetCurrentProcessId() && (GetAsyncKeyState(vk) & 0x8000);
+            if (down && !keyWasDown) {
+                ++keyCount;
+                if (FILE* k = _wfopen(keyPath, L"w")) { std::fprintf(k, "%u\n", keyCount); std::fclose(k); }
+            }
+            keyWasDown = down;
+        }
         LONG head = g_traceHead;
         if (head != traced) {
             if (!dbg) {

@@ -30,6 +30,11 @@ SPEED_FIELD = 0x8a791d8c  # mode: blend start speed; variant: full blend speed (
 RIDER_CAMERA = 'Vehicles.Driving.Interior.New Interior.bike'
 RIDER_TUCK_CAMERA = 'Vehicles.Driving.Interior.New Interior.bike.42 m/s'
 VEHICULE_INTERIOR = fcb.crc('VehiculeInterior')
+# v0.44 pointed the bike VehiculeBumper mode at the rider camera: user lost the bike-mounted first person view
+# and still could not get back to the rider view. v0.46: Bumper keeps the game's bike-mounted camera again;
+# bike_fp.lua adds the rider view to the game's cycle instead.
+VEHICULE_BUMPER = fcb.crc('VehiculeBumper')
+BUMPER_TO_RIDER = False
 # v0.31: the rider tucks well before 42 m/s; at 55 km/h the camera was only 1/3 of the way to the tuck camera
 # (camlog). Full blend speed of the bike rider speed variant (fContextValue under MixerContexts/Context).
 TUCK_FULL_SPEED = 42.0  # m/s; game 42. v0.31-v0.33 used 15 / 10 for the tuck; v0.40: the tuck is done by
@@ -69,6 +74,8 @@ def write(o, out, ctx):
         new = b
         if ctx == 'vi' and h == CAMERA_FIELD:
             new = rider_key
+        elif ctx == 'bumper' and h == CAMERA_FIELD and BUMPER_TO_RIDER:
+            new = rider_key
         elif ctx == 'vi' and h == SPEED_FIELD:
             assert struct.unpack('<f', b)[0] == 3.0, b.hex()
             new = struct.pack('<f', RIDER_BLEND_START)
@@ -84,6 +91,8 @@ def write(o, out, ctx):
         child_ctx = ctx
         if ctx is None and o in presets_bike and c.hash == VEHICULE_INTERIOR:
             child_ctx = 'vi'
+        elif ctx is None and o in presets_bike and c.hash == VEHICULE_BUMPER:
+            child_ctx = 'bumper'
         elif ctx in ('vi', 'vi_child'):
             child_ctx = 'vi_child'
         write(c, out, child_ctx)

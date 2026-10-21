@@ -296,6 +296,41 @@ History:
   0xb4..0xc8, fCollisionVisibleRadius 0x208). Interior cameras: fFollowDelayPY 0 and fFollowPYLag 0 (instant
   return); on foot 1.0 / 0.15. Bike cameras now fFollowDelayPY 2.0, fFollowPYLag 0.3 (user rule: while moving a
   look returns after 2 s). 10 bytes differ from v0.34.
+- v0.44: after pressing the camera key on a bike the rider view could not be reached again (the bike key
+  cycles VehiculeNormal 3rd person <-> VehiculeBumper bike-mounted view; VehiculeInterior is only set by
+  bike_fp.lua on entry). The 5 bike presets' VehiculeBumper mode now shows the rider camera
+  (build_vehicle_preset.py), so the key toggles 3rd person <-> rider view; the bike-mounted view is gone.
+  Car presets have their own VehiculeInterior slot (Interior.New Interior) next to VehiculeBumper; not changed.
+  Backup `_dev/cameravehiclepreset_v0.40.lib`.
+- v0.45: v0.44 did not fix it (user). Lua has no keyboard access and no getter for the vehicle camera mode, so:
+  NearClipFix.asi polls the camera key ([CameraKey] VirtualKey, 67 = C) every 20 ms while the game has focus and
+  writes the press count to bin/NearClipFix_camkey.txt; bike_fp.lua (now a per-tick SH_NextTick chain) toggles
+  rider view (SetInVehicleCamera 3) <-> 3rd person (0) on every new press while on a bike, rider view on entry.
+  Dry run with stubbed game functions: correct toggling, presses on foot / in cars ignored.
+- v0.46: v0.45 made it worse (user): forcing Normal replaced the user's own 3rd person camera (log: session
+  3rd person at (1.3,-2.3,1.8), forced one (0,-4.2,1.5)), cut the cycle down, and the rider view set on a press
+  was undone by the game ~0.1 s later; v0.44 had also removed the bike-mounted view. Now: preset back to v0.40
+  (Bumper = bike-mounted camera), and bike_fp.lua only adds the rider view after the bike-mounted view: a press
+  made while the bike-mounted view shows is followed 0.3 s later by SetInVehicleCamera(Interior); other presses
+  are left to the game. View classified from the camera position relative to the bike. Dry run against a
+  simulated game cycle: rider -> 3rd -> mounted -> rider. cout.log logs the view at each press.
+- v0.46 tested: "much better". v0.47: the 3rd person flashed for the 0.3 s wait before the rider view; now the
+  rider view is set as soon as the camera has moved 3 cm off the bike-mounted spot (the game's own switch has
+  started), 0.3 s kept as fallback. Dry run with a 2-tick switch delay and 30-tick blend: cut 1 tick after it starts.
+- v0.48: one frame of the game's 3rd person still showed before the rider view. The plugin now holds the
+  last bike-mounted frame: bike_fp.lua writes bin/NearClipFix_view.txt ("mounted"/"other", from its view
+  classification); NearClipFix.asi reads the camera key in the camera update, and on a press while "mounted"
+  keeps rendering the previous frame (view position; rotation +0x60..0x68 and FOV +0x6C written into the camera
+  before the game reads them; the rider cave reloads xmm6 = FOV, which the game loads at 2A1182 and saves at
+  2A117A) until the rider FOV marker is active or 0.5 s pass. Teleport now needs > 5 m and > 100 m/s (a hitch is
+  not one). Offline: freeze_test.cpp (hold through the real cave) and cave_test.cpp, both with a thunk that
+  saves xmm6 and keeps rsp 16-aligned like the game (the old thunks did not, which skewed earlier test output).
+- Focus (Tool_Focus = left Ctrl in GamerProfile.xml) switches the first person (Interior) view to 3rd person and
+  back, in cars and on bikes; no preset/modifier difference explains it (all blend elements bNormal only), so
+  it is the game's own behaviour. User: leave it for now (a v0.49 plugin attempt was built, never installed, and
+  removed from the source).
+- v0.49: bike_fp.lua also starts cars in first person (SetInVehicleCamera Interior) on entry; vehicles whose
+  name contains "Boat" are left alone. Dry run: car / bike -> first person, boat untouched.
 - Rider body hide (plugin, 2026-10-21): lift alone still passed through the head mid-way. Instead, on the
   rider view (FOV marker) from `HideAbove` 13.5 deg up (camera world pitch +0x60) the near plane switches to
   `HideNear` 1.0 m, so the rider's own head/body are not drawn; below it the normal near applies. Lift turned
